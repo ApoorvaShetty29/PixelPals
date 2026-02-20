@@ -279,7 +279,7 @@ const ENEMIES = {
 };
 
 // ─── GAME STATE ───────────────────────────────────────────────────────
-let state = 'select'; // 'select' | 'playing' | 'gameover' | 'paused'
+let state = 'select'; // 'select' | 'playing' | 'gameover' | 'nameentry' | 'leaderboard' | 'paused'
 let selectedChar = null;
 let player = {};
 let items = [];
@@ -300,12 +300,53 @@ let flashTimer = 0;
 let frameTime = 0;
 let lastTime = 0;
 let stars = [];
+
+// ─── LEADERBOARD ──────────────────────────────────────────────────────
+let leaderboard = [];       // [{name, score, char, date}]
+let playerName = '';        // being typed
+let nameCursorBlink = 0;
+let newEntryIndex = -1;     // index of just-submitted score in sorted board
+const MAX_NAME_LEN = 12;
+const MAX_BOARD = 20;
+
+function loadLeaderboard() {
+  try {
+    const raw = localStorage.getItem('pixelpals_lb');
+    if (raw) leaderboard = JSON.parse(raw);
+  } catch(e) { leaderboard = []; }
+}
+
+function saveLeaderboard() {
+  try { localStorage.setItem('pixelpals_lb', JSON.stringify(leaderboard)); } catch(e) {}
+}
+
+function submitScore(name) {
+  const entry = {
+    name: name.trim() || 'ANON',
+    score,
+    char: selectedChar ? selectedChar.name : '???',
+    charColor: selectedChar ? selectedChar.color : '#FFFFFF',
+    date: new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short' })
+  };
+  leaderboard.push(entry);
+  leaderboard.sort((a, b) => b.score - a.score);
+  if (leaderboard.length > MAX_BOARD) leaderboard = leaderboard.slice(0, MAX_BOARD);
+  newEntryIndex = leaderboard.findIndex(e => e === entry);
+  saveLeaderboard();
+}
+
+loadLeaderboard();
 let animFrame = 0;
 let bgScrollX = 0;
 let highScore = 0;
 let hoverChar = -1;
 let selectAnim = 0;
 let gameStartAnim = 0;
+
+function getHighScore() {
+  if (leaderboard.length > 0) return leaderboard[0].score;
+  return highScore;
+}
 
 // Generate background stars
 for (let i = 0; i < 60; i++) {
@@ -546,7 +587,7 @@ function drawHUD() {
   ctx.fillText('BEST', 120, 48);
   ctx.fillStyle = '#F8D878';
   ctx.font = `10px ${font}`;
-  ctx.fillText(String(highScore).padStart(6, '0'), 120, 64);
+  ctx.fillText(String(getHighScore()).padStart(6, '0'), 120, 64);
 
   // Lives
   ctx.fillStyle = '#A0D0FF';
@@ -712,22 +753,22 @@ function drawSelectScreen() {
   // Animated title color
   const hue = (animFrame * 2) % 360;
   ctx.fillStyle = `hsl(${hue}, 100%, 65%)`;
-  ctx.font = `16px ${font}`;
+  ctx.font = `14px ${font}`;
   ctx.textAlign = 'center';
-  ctx.fillText('PIXEL PALS ADVENTURE', 330, 48);
+  ctx.fillText('PIXEL PALS ADVENTURE', 330, 50);
   ctx.font = `7px ${font}`;
   ctx.fillStyle = '#A0D0FF';
-  ctx.fillText('COLLECT ITEMS  ·  DODGE ENEMIES  ·  GET HIGH SCORE', 330, 70);
+  ctx.fillText('COLLECT · DODGE ENEMIES · HIGH SCORE', 330, 72);
   ctx.textAlign = 'left';
 
   // "Choose your character"
-  ctx.font = `9px ${font}`;
+  ctx.font = `10px ${font}`;
   ctx.fillStyle = '#F8D878';
   ctx.textAlign = 'center';
-  ctx.fillText('CHOOSE YOUR CHARACTER', 330, 110);
+  ctx.fillText('CHOOSE YOUR CHARACTER', 330, 112);
 
   // Character cards
-  const cardW = 108, cardH = 200;
+  const cardW = 112, cardH = 220;
   const startX = 660 / 2 - (CHARS.length * cardW) / 2 + cardW / 2;
 
   for (let i = 0; i < CHARS.length; i++) {
@@ -761,25 +802,26 @@ function drawSelectScreen() {
     drawPixels(ch.pixels, ch.colors, 0, -40 + bounce, 5);
 
     // Name
-    ctx.font = `6px ${font}`;
-    ctx.fillStyle = ch.color;
+    ctx.font = `7px ${font}`;
+    ctx.fillStyle = hovered ? '#FFFFFF' : ch.color;
     ctx.textAlign = 'center';
-    ctx.fillText(ch.name, 0, 12);
+    ctx.fillText(ch.name, 0, 14);
 
     // Desc
-    ctx.font = `5px ${font}`;
+    ctx.font = `6px ${font}`;
     ctx.fillStyle = '#80FF80';
-    ctx.fillText(ch.desc, 0, 26);
+    ctx.fillText(ch.desc, 0, 30);
 
     // SELECT button
     ctx.fillStyle = hovered ? ch.color : '#1a2a70';
-    ctx.fillRect(-30, 40, 60, 20);
+    ctx.fillRect(-34, 42, 68, 24);
     ctx.strokeStyle = hovered ? '#FFFFFF' : ch.color;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-30, 40, 60, 20);
-    ctx.fillStyle = hovered ? '#000000' : ch.color;
-    ctx.font = `6px ${font}`;
-    ctx.fillText('SELECT', -18, 54);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-34, 42, 68, 24);
+    ctx.fillStyle = hovered ? '#000000' : '#FFFFFF';
+    ctx.font = `7px ${font}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('SELECT', 0, 58);
 
     ctx.restore();
   }
@@ -811,53 +853,163 @@ function drawSelectScreen() {
 // ─── GAME OVER SCREEN ─────────────────────────────────────────────────
 function drawGameOver() {
   drawBackground();
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(0, 0, 660, 530);
-
   ctx.textAlign = 'center';
 
-  // Box
   ctx.fillStyle = '#0d1650';
-  ctx.fillRect(130, 100, 400, 330);
+  ctx.fillRect(110, 80, 440, 370);
   ctx.strokeStyle = score >= 0 ? '#F8D878' : '#F03030';
   ctx.lineWidth = 4;
-  ctx.strokeRect(130, 100, 400, 330);
+  ctx.strokeRect(110, 80, 440, 370);
 
   ctx.fillStyle = score >= 0 ? '#F8D878' : '#F03030';
   ctx.font = `18px ${font}`;
-  ctx.fillText('GAME OVER', 330, 148);
+  ctx.fillText('GAME OVER', 330, 120);
 
   ctx.fillStyle = '#FFFFFF';
   ctx.font = `8px ${font}`;
-  ctx.fillText('FINAL SCORE', 330, 185);
-
+  ctx.fillText('FINAL SCORE', 330, 152);
   ctx.fillStyle = score < 0 ? '#FF8080' : '#80FF80';
   ctx.font = `20px ${font}`;
-  ctx.fillText(score, 330, 218);
+  ctx.fillText(score, 330, 180);
 
+  if (selectedChar) drawPixels(selectedChar.pixels, selectedChar.colors, 330, 218, 4);
+
+  // Name entry area
   ctx.fillStyle = '#A0D0FF';
-  ctx.font = `7px ${font}`;
-  ctx.fillText('HIGH SCORE', 330, 248);
-  ctx.fillStyle = '#F8D878';
-  ctx.font = `12px ${font}`;
-  ctx.fillText(highScore, 330, 268);
+  ctx.font = `8px ${font}`;
+  ctx.fillText('ENTER YOUR NAME', 330, 258);
 
-  if (selectedChar) {
-    drawPixels(selectedChar.pixels, selectedChar.colors, 330, 320, 6);
+  // Input box
+  const ibx = 170, iby = 270, ibw = 320, ibh = 34;
+  ctx.fillStyle = '#000830';
+  ctx.fillRect(ibx, iby, ibw, ibh);
+  ctx.strokeStyle = '#5050FF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ibx, iby, ibw, ibh);
+
+  // Name text + blinking cursor
+  nameCursorBlink += 0.05;
+  const displayName = playerName + (Math.floor(nameCursorBlink * 2) % 2 === 0 ? '_' : ' ');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `10px ${font}`;
+  ctx.fillText(displayName, 330, iby + 22);
+
+  ctx.fillStyle = '#606080';
+  ctx.font = `6px ${font}`;
+  ctx.fillText('TYPE YOUR NAME · PRESS ENTER TO SUBMIT', 330, 322);
+
+  // Buttons
+  drawBtn('SUBMIT', 180, 338, 130, '#30A030');
+  drawBtn('SKIP', 350, 338, 120, '#606080');
+  drawBtn('LEADERBOARD', 155, 380, 350, '#3060D0');
+
+  ctx.textAlign = 'left';
+}
+
+function drawBtn(label, x, y, w, col, hover) {
+  ctx.fillStyle = hover ? '#FFFFFF' : col;
+  ctx.fillRect(x, y, w, 28);
+  ctx.fillStyle = hover ? '#000000' : '#FFFFFF';
+  ctx.font = `7px ${font}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x + w / 2, y + 18);
+}
+
+function drawLeaderboard() {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(0, 0, 660, 530);
+
+  // Panel
+  ctx.fillStyle = '#080830';
+  ctx.fillRect(30, 15, 600, 500);
+  ctx.strokeStyle = '#F8D878';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(30, 15, 600, 500);
+
+  // Trophy & title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#F8D878';
+  ctx.font = `13px ${font}`;
+  ctx.fillText('★  HALL OF FAME  ★', 330, 46);
+  ctx.font = `7px ${font}`;
+  ctx.fillStyle = '#5060A0';
+  ctx.fillText('TOP 20 PIXEL PALS', 330, 62);
+
+  // Column headers
+  const cols = { rank: 60, name: 180, char: 360, score: 480, date: 580 };
+  ctx.fillStyle = '#5060A0';
+  ctx.font = `6px ${font}`;
+  ctx.textAlign = 'left';
+  ctx.fillText('#', cols.rank, 82);
+  ctx.fillText('NAME', cols.name, 82);
+  ctx.fillText('CHARACTER', cols.char, 82);
+  ctx.fillText('SCORE', cols.score, 82);
+  ctx.fillText('DATE', cols.date, 82);
+
+  // Divider
+  ctx.fillStyle = '#1a2060';
+  ctx.fillRect(40, 87, 580, 2);
+
+  // Rows
+  const rowH = 20;
+  const startY = 98;
+  const visible = leaderboard.slice(0, MAX_BOARD);
+
+  if (visible.length === 0) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#404070';
+    ctx.font = `8px ${font}`;
+    ctx.fillText('NO SCORES YET!', 330, 280);
+    ctx.font = `6px ${font}`;
+    ctx.fillText('PLAY A GAME TO GET ON THE BOARD', 330, 300);
+  }
+
+  for (let i = 0; i < visible.length; i++) {
+    const entry = visible[i];
+    const ry = startY + i * rowH;
+    const isNew = i === newEntryIndex;
+    const isTop3 = i < 3;
+
+    // Row bg
+    if (isNew) {
+      ctx.fillStyle = 'rgba(80,200,80,0.15)';
+      ctx.fillRect(40, ry - 13, 580, rowH);
+      ctx.strokeStyle = '#30C030';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(40, ry - 13, 580, rowH);
+    } else if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(40, ry - 13, 580, rowH);
+    }
+
+    // Rank medal colors
+    const rankColors = ['#F8D878', '#C0C0C0', '#CD7F32'];
+    ctx.font = `7px ${font}`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = isTop3 ? rankColors[i] : (isNew ? '#80FF80' : '#606090');
+    ctx.fillText(isTop3 ? ['★','☆','◇'][i] : String(i + 1).padStart(2, ' '), cols.rank, ry);
+
+    ctx.fillStyle = isNew ? '#80FF80' : '#D0D8FF';
+    ctx.fillText(entry.name.substring(0, MAX_NAME_LEN).toUpperCase(), cols.name, ry);
+
+    ctx.fillStyle = entry.charColor || '#A0A0FF';
+    ctx.fillText((entry.char || '???').substring(0, 12), cols.char, ry);
+
+    ctx.fillStyle = isNew ? '#80FF80' : (entry.score < 0 ? '#FF8080' : '#F8F8F8');
+    ctx.fillText(String(entry.score), cols.score, ry);
+
+    ctx.fillStyle = '#404060';
+    ctx.fillText(entry.date || '', cols.date, ry);
   }
 
   // Buttons
-  const btn1 = { label: 'PLAY AGAIN', x: 170, y: 370, w: 140, col: '#30A030' };
-  const btn2 = { label: 'MENU', x: 350, y: 370, w: 140, col: '#3060F0' };
-
-  for (const btn of [btn1, btn2]) {
-    ctx.fillStyle = btn.col;
-    ctx.fillRect(btn.x, btn.y, btn.w, 32);
-    ctx.fillStyle = '#000000';
-    ctx.font = `7px ${font}`;
-    ctx.fillText(btn.label, btn.x + btn.w/2, btn.y + 20);
-  }
-
+  ctx.textAlign = 'center';
+  drawBtn('PLAY AGAIN', 100, 455, 160, '#30A030');
+  drawBtn('MAIN MENU', 280, 455, 160, '#3060F0');
+  drawBtn('CLEAR BOARD', 460, 455, 160, '#802020');
   ctx.textAlign = 'left';
 }
 
@@ -920,6 +1072,7 @@ function update(dt) {
           playSound(lives <= 0 ? 'death' : 'hit');
           if (lives <= 0) {
             if (score > highScore) highScore = score;
+            playerName = '';
             state = 'gameover';
             return;
           }
@@ -946,6 +1099,7 @@ function update(dt) {
           playSound(lives <= 0 ? 'death' : 'hit');
           if (lives <= 0) {
             if (score > highScore) highScore = score;
+            playerName = '';
             state = 'gameover';
             return;
           }
@@ -976,6 +1130,11 @@ function render(dt) {
 
   if (state === 'gameover') {
     drawGameOver();
+    return;
+  }
+
+  if (state === 'leaderboard') {
+    drawLeaderboard();
     return;
   }
 
@@ -1030,6 +1189,30 @@ document.addEventListener('keydown', e => {
   } else if (state === 'paused') {
     if (e.key === 'p' || e.key === 'P') { state = 'playing'; }
     e.preventDefault();
+  } else if (state === 'gameover') {
+    // Name entry typing
+    if (e.key === 'Backspace') {
+      playerName = playerName.slice(0, -1);
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      submitScore(playerName);
+      state = 'leaderboard';
+      playSound('start');
+      e.preventDefault();
+    } else if (e.key.length === 1 && playerName.length < MAX_NAME_LEN) {
+      playerName += e.key.toUpperCase();
+      playSound('menu');
+      e.preventDefault();
+    }
+  } else if (state === 'leaderboard') {
+    if (e.key === 'Enter' || e.key === ' ') {
+      startGame();
+      playSound('start');
+      e.preventDefault();
+    } else if (e.key === 'Escape') {
+      state = 'select';
+      e.preventDefault();
+    }
   }
 });
 
@@ -1038,12 +1221,12 @@ canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * (660 / rect.width);
   const my = (e.clientY - rect.top)  * (530 / rect.height);
-  const cardW = 108;
-  const startX = 660 / 2 - (CHARS.length * cardW) / 2;
+  const cardW2 = 112;
+  const startX2 = 660 / 2 - (CHARS.length * cardW2) / 2;
   hoverChar = -1;
   for (let i = 0; i < CHARS.length; i++) {
-    const cx = startX + i * cardW;
-    if (mx >= cx && mx <= cx + cardW && my >= 215 && my <= 415) {
+    const cx = startX2 + i * cardW2;
+    if (mx >= cx && mx <= cx + cardW2 && my >= 200 && my <= 420) {
       hoverChar = i;
       break;
     }
@@ -1057,11 +1240,11 @@ canvas.addEventListener('click', e => {
   const my = (e.clientY - rect.top)  * (530 / rect.height);
 
   if (state === 'select') {
-    const cardW = 108;
-    const startX = 660 / 2 - (CHARS.length * cardW) / 2;
+    const cardW3 = 112;
+    const startX3 = 660 / 2 - (CHARS.length * cardW3) / 2;
     for (let i = 0; i < CHARS.length; i++) {
-      const cx = startX + i * cardW;
-      if (mx >= cx && mx <= cx + cardW && my >= 215 && my <= 415) {
+      const cx = startX3 + i * cardW3;
+      if (mx >= cx && mx <= cx + cardW3 && my >= 200 && my <= 420) {
         selectedChar = CHARS[i];
         playSound('start');
         startGame();
@@ -1071,15 +1254,50 @@ canvas.addEventListener('click', e => {
   }
 
   if (state === 'gameover') {
+    // Submit button
+    if (mx >= 180 && mx <= 310 && my >= 338 && my <= 366) {
+      submitScore(playerName);
+      state = 'leaderboard';
+      playSound('start');
+      return;
+    }
+    // Skip button
+    if (mx >= 350 && mx <= 470 && my >= 338 && my <= 366) {
+      submitScore('ANON');
+      state = 'leaderboard';
+      playSound('menu');
+      return;
+    }
+    // Leaderboard button
+    if (mx >= 155 && mx <= 505 && my >= 380 && my <= 408) {
+      submitScore(playerName || 'ANON');
+      state = 'leaderboard';
+      playSound('menu');
+      return;
+    }
+  }
+
+  if (state === 'leaderboard') {
     // Play Again
-    if (mx >= 170 && mx <= 310 && my >= 370 && my <= 402) {
+    if (mx >= 100 && mx <= 260 && my >= 455 && my <= 483) {
       startGame();
       playSound('start');
+      return;
     }
-    // Menu
-    if (mx >= 350 && mx <= 490 && my >= 370 && my <= 402) {
+    // Main Menu
+    if (mx >= 280 && mx <= 440 && my >= 455 && my <= 483) {
       state = 'select';
       playSound('menu');
+      return;
+    }
+    // Clear Board
+    if (mx >= 460 && mx <= 620 && my >= 455 && my <= 483) {
+      if (confirm('Clear the entire leaderboard? This cannot be undone.')) {
+        leaderboard = [];
+        saveLeaderboard();
+        newEntryIndex = -1;
+      }
+      return;
     }
   }
 });
